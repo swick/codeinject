@@ -1,0 +1,36 @@
+#!/bin/bash
+ 
+if [ $# -lt 2 ]; then
+  echo "Syntax: codeinject <PID> <LIBRARY>" >&2
+  exit 1
+fi
+ 
+PID=$1
+LIB=$2
+MODE=1 # who knows? I hope it's RTLD_LAZY
+
+if [[ ! $PID =~ ^[0-9]+$ ]]; then
+  echo "invalid PID" >&2
+  exit 2
+fi
+
+res=$(file "$LIB"|grep "shared object")
+if [[ $res == "" ]]; then
+  echo "$LIB is no shared object"
+  exit 3
+fi
+
+res=$(ps -U $USER -u $USER -o pid= |grep $PID)
+if [[ $res == "" && $USER != "root" ]]; then
+  echo "process doesn't belong to you"
+  exit 4
+fi
+
+if [[ $(cat /proc/sys/kernel/yama/ptrace_scope) -eq 1 && $USER != "root" ]]; then
+  echo "you need root permission for this"
+  exit 5
+fi
+
+gdb -n -q -batch -ex "attach $PID" -ex "set \$addr = __libc_dlopen_mode" -ex "set \$addr = dlopen" -ex "call (\$addr)(\"$LIB\", $MODE)" -ex "detach" -ex "quit" >/dev/null 2>&1
+
+
